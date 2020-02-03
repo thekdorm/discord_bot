@@ -1,5 +1,5 @@
 import praw
-from secrets import secret, client_id, user_agent
+from .secrets import secret, client_id, user_agent
 
 
 class Linker:
@@ -11,8 +11,12 @@ class Linker:
     # Function to grab top post of specified subreddit. Time filter optional, default to day.
     def link_post(self, sub, mode='top', time_filter='day'):
         if mode == 'top':
+            if time_filter not in ['all', 'day', 'hour', 'month', 'week', 'year']:
+                raise ValueError
             posts = self.linker.subreddit(sub).top(limit=1, time_filter=time_filter)
         elif mode == 'controversial':
+            if time_filter not in ['all', 'day', 'hour', 'month', 'week', 'year', '', 0, 'yasdf']:
+                raise ValueError
             posts = self.linker.subreddit(sub).controversial(limit=1, time_filter=time_filter)
         elif mode == 'new':
             posts = self.linker.subreddit(sub).new(limit=1)
