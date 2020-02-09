@@ -65,17 +65,3 @@ def modify_column(db, mode, column):
         c.execute(f'alter table users drop {column}')
     db.commit()
     db.close()
-
-
-# create_db('Bastion-371365591300440064.db', ['user', 'steam', 'battlenet'])
-# db = sqlite3.connect('Bastion-371365591300440064.db')
-# c = db.cursor()
-# modify_column('Bastion-371365591300440064.db', 'drop', 'battle.net')
-# print(get_record('Bastion-371365591300440064.db', 'Kygo Ren#2295', column='steam')[0][0])
-# add_record('Bastion-371365591300440064.db', 'Kygo Ren#2295', columns=['user', 'steam', 'battlenet'], column='steam', value='https://steamcommunity.com/id/thekdorm')
-# c.execute("pragma table_info(users)")
-# c.execute("select * from users")
-# print(c.fetchall())
-# delete_record('Bastion-371365591300440064.db', 'Kygo Ren#2295')
-# db.commit()
-# db.close()
