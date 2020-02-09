@@ -1,1 +1,1 @@
-from .secrets import *
+# Make module importable
