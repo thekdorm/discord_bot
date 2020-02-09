@@ -14,19 +14,25 @@ class Linker:
             if time_filter not in ['all', 'day', 'hour', 'month', 'week', 'year']:
                 raise ValueError
             posts = self.linker.subreddit(sub).top(limit=1, time_filter=time_filter)
+
         elif mode == 'controversial':
             if time_filter not in ['all', 'day', 'hour', 'month', 'week', 'year', '', 0, 'yasdf']:
                 raise ValueError
             posts = self.linker.subreddit(sub).controversial(limit=1, time_filter=time_filter)
+
         elif mode == 'new':
             posts = self.linker.subreddit(sub).new(limit=1)
+
         elif mode == 'rising':
             posts = self.linker.subreddit(sub).rising(limit=1)
+
         elif mode == 'gilded':
             posts = self.linker.subreddit(sub).gilded(limit=1)
+
         else:
             posts = ''
             return posts
+
         for p in posts:
             return p  # couldn't find a better way to do this, return posts will print object reference in memory
 

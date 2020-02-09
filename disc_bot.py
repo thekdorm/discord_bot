@@ -1,11 +1,13 @@
+import os
 import discord
 import logging
 import logging.handlers
 from pathlib import Path
 from datetime import datetime
 from discord.ext import commands
-from bot.secrets import token
+from bot.secrets import token, owner
 from bot import linker, hangman_game, overwatch_stats
+from db import sql_external_profiles
 
 
 def get_logfile():
@@ -30,7 +32,8 @@ bot.remove_command('help')  # so we can create a custom !help command
 
 @bot.event
 async def on_ready():
-    print("Logged in!")
+    bot.owner_id = owner
+    print(f'Logged in as {bot.user.name}!')
     logger.info(f'Logged in as {bot.user.name}!')
 
 
@@ -74,25 +77,32 @@ async def owstat(ctx, player, role=None):
 
     if role:
         result = overwatch_stats.get_player_stats(player, role.lower())
+
     else:
         result = overwatch_stats.get_player_stats(player)
+
     if result == 404:
         await ctx.send(f'Bummer, looks like player {player} doesn\'t exist :( '
                        f'make sure spelling and capitalization are correct')
+
     elif result in [500, 503]:
         await ctx.send("I can't talk to the stats server right now, try again later.")
+
     else:
         if role and result:
             embed = discord.Embed(title=f'{player}: {role.capitalize()} - {result["level"]} SR')
             embed.set_image(url=result["rankIcon"])
+
         elif not role and result:
             sr = []
             embed = discord.Embed(title=f'{player} Competitive Stats')
+
             if len(result) >= 1:
                 sr.append(result[0]['level'])
                 embed.add_field(name='Role', value=result[0]['role'].capitalize())
                 embed.add_field(name='Rank', value=overwatch_stats.get_rank(result[0]['level']))
                 embed.add_field(name='SR', value=result[0]['level'])
+
                 if len(result) >= 2:
                     sr.append(result[1]['level'])
                     embed.set_field_at(0, name='Role', value=embed._fields[0]['value'] +
@@ -101,6 +111,7 @@ async def owstat(ctx, player, role=None):
                                                              f'\n{overwatch_stats.get_rank(result[1]["level"])}')
                     embed.set_field_at(2, name='SR', value=embed._fields[2]['value'] +
                                                              f'\n{result[1]["level"]}')
+
                 if len(result) == 3:
                     sr.append(result[2]['level'])
                     embed.set_field_at(0, name='Role', value=embed._fields[0]['value'] +
@@ -110,9 +121,11 @@ async def owstat(ctx, player, role=None):
                     embed.set_field_at(2, name='SR', value=embed._fields[2]['value'] +
                                                            f'\n{result[2]["level"]}')
             embed.set_image(url=result[sr.index(max(sr))]["rankIcon"])
+
         else:
             logger.error("No stats found.")
             await ctx.send(f'Couldn\'t find stats for {role} for player {player}.')
+
         if result:
             await ctx.send(embed=embed)
 
@@ -132,6 +145,7 @@ async def reddit(ctx, sub, mode='top', time='day'):
         logger.error("Arguments invalid or too many were supplied")
         await ctx.send('Arguments are invalid or too many were supplied.')
         raise commands.BadArgument(message='Exception: BadArgument: Mode argument not provided or can\'t be parsed.')
+
     else:
         if post.__class__.__name__ == 'Comment':
             embed = discord.Embed(title=f'{post.author} in /r/{sub} on {post.submission.title}',
@@ -141,13 +155,17 @@ async def reddit(ctx, sub, mode='top', time='day'):
                                       f'{post.id}/')
             embed.add_field(name='Karma', value=post.score, inline=True)
             embed.add_field(name='Comment Body', value=post.body)
+
         elif post.is_self:
             embed = discord.Embed(title=post.title, url=post.url)
             embed.add_field(name='Karma', value=post.score)
+
             if len(post.selftext) <= 1024:
                 embed.add_field(name='Text Post', value=post.selftext)
+
             else:
                 embed.add_field(name='Text Post, Part 1', value=post.selftext[:1023])
+
         else:
             embed = discord.Embed(title=post.title, url=post.url)
             embed.set_image(url=post.url)
@@ -161,6 +179,62 @@ async def reddit_error(ctx, error):
 
     if isinstance(error, commands.CommandInvokeError):
         await ctx.send('Oops! Looks like that subreddit might not exist. Check your spelling or try another one.')
+
+
+@bot.command()
+async def profile(ctx, action, account_type=None, account=None, user=None):
+    columns = ['user', 'steam', 'battlenet']
+    if not user:
+        user = ctx.message.author
+    Path("db").mkdir(parents=True, exist_ok=True)
+    db = f'db/{ctx.guild}-{ctx.guild.id}.db'
+    db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), db)
+    logger.info(f'{ctx.message.author}, profile: db={db_path}, user={user}, action={action}, '
+                f'account={account}, account_type={account_type}')
+
+    print(f'action={action}, type={account_type}, account={account}, user={user}, db={ctx.guild}-{ctx.guild.id}.db')  # For debug
+    sql_external_profiles.create_db(db_path, columns=columns)
+
+    if action.lower() == 'add':
+        sql_external_profiles.add_record(db_path, user, columns, column=account_type, value=account)
+        logger.info(f'Added {user} to {db_path}: {account_type}-{account}')
+        await ctx.send(f'Added {user} to db: {account_type}-{account}')
+
+    elif action.lower() == 'get':
+        result = sql_external_profiles.get_record(db_path, user, column=account_type)  # Add get all functionality?
+        logger.info(f'Get result: {result[0][0]}')
+        await ctx.send({result[0][0]})
+
+    elif action.lower() == 'delete':
+        if ctx.message.author.id == bot.owner_id:
+            sql_external_profiles.delete_record(db_path, user)
+            logger.info(f'Deleted entries for user {user}.')
+            await ctx.send(f'Deleted entries for user {user}.')
+        else:
+            logger.info(f'Unauthorized user {user} for this action, aborting.')
+            await ctx.send(f'Unauthorized user {user} for this action, aborting.')
+
+    elif action.lower() == 'add_column':
+        if ctx.message.author.id == bot.owner_id:
+            sql_external_profiles.modify_column(db_path, 'add', account_type)
+            logger.info(f'Added column {account_type}.')
+            await ctx.send(f'Added column {account_type}.')
+        else:
+            logger.info(f'Unauthorized user {user} for this action, aborting.')
+            await ctx.send(f'Unauthorized user {user} for this action, aborting.')
+
+    elif action.loower() == 'drop_column':
+        if ctx.message.author.id == bot.owner_id:
+            sql_external_profiles.modify_column(db_path, 'drop', account_type)
+            logger.info(f'Dropped column {account_type}.')
+            await ctx.send(f'Dropped column {account_type}.')
+        else:
+            logger.info(f'Unauthorized user {user} for this action, aborting.')
+            await ctx.send(f'Unauthorized user {user} for this action, aborting.')
+
+    else:
+        logger.error(f'Action argument not recognized: {action}')
+        await ctx.send(f'Action argument not recognized: {action}. Valid options are: add, get')
 
 
 class HangmanCommand(commands.Cog):
@@ -180,14 +254,18 @@ class HangmanCommand(commands.Cog):
             print(f'Word is {self.word}')
             self.places = '_'*len(self.word)
             await ctx.send(f'{len(self.word)} letters: \n`{" ".join(self.places)}`')
+
         if self.word and self.places and guess:
             result = hangman_game.check_guess(self.word, guess.lower())
+
             if result:
                 self.places = hangman_game.modify_places(self.places, result, self.word)
                 await ctx.send(f'Nice!\n`{" ".join(self.places)}`')
+
                 if '_' not in self.places:
                     self.word = None
                     await ctx.send("You win!")
+
             else:
                 await ctx.send(f'Bummer, that letter isn\'t there :(\n`{" ".join(self.places)}`')
 
