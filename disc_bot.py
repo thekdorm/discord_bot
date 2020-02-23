@@ -10,7 +10,7 @@ from bot import linker, hangman_game, overwatch_stats
 from db import sql_external_profiles
 
 
-def get_logfile():
+def get_logfile():  # make logfile for debug purposes
     Path("logs").mkdir(parents=True, exist_ok=True)
     logging.basicConfig(format='%(asctime)s %(message)s',
                         datefmt='%m/%d/%Y %H:%M:%S',
@@ -19,6 +19,21 @@ def get_logfile():
 
     log = logging.getLogger()
     return log
+
+
+def create_db():  # create new SQL db for each server the bot connects IF db doesn't exist on startup; else do nothing
+    Path("db").mkdir(parents=True, exist_ok=True)
+    for guild in bot.guilds:
+        db = f'db/{guild}-{guild.id}.db'
+        db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), db)
+        result = sql_external_profiles.create_db(db_path)  # create the server-specific db if it doesn't exist already
+        if result == 1:
+            logger.info(f'DB created successfully: {db}')
+        elif result == 0:
+            logger.info(f'{db} already exists, continuing...')
+        for member in guild.members:
+            if not member.bot:  # only add non-bot users to db
+                sql_external_profiles.add_user(db_path, member.name)
 
 
 logger = get_logfile()
@@ -30,21 +45,26 @@ bot = commands.Bot(command_prefix='!', description=description)
 bot.remove_command('help')  # so we can create a custom !help command
 
 
-@bot.event
+@bot.event  # do all this stuff when bot connects successfully
 async def on_ready():
     bot.owner_id = owner
     print(f'Logged in as {bot.user.name}!')
     logger.info(f'Logged in as {bot.user.name}!')
+    create_db()
 
 
 @bot.command()
-async def help(ctx):
+async def help(ctx):  # custom !help command for all bot features
     embed = discord.Embed(title=f'Discord Bot Info', description=description)
     embed.add_field(name='Commands', value='!reddit\n'
                                            '\n'
                                            '\n'
                                            '!idea\n'
                                            '!owstat\n'
+                                           '\n'
+                                           '!profile\n'
+                                           '\n'
+                                           '\n'
                                            '\n'
                                            '!hangman')
     embed.add_field(name='Args', value='subreddit\n'  # !reddit
@@ -53,6 +73,10 @@ async def help(ctx):
                                        'None\n'  # !idea
                                        'player\n'  # !owstat
                                        'role=None[tank, damage, support]\n'
+                                       'action [add, get]\n'  # !profile
+                                       'user=None (defaults to yourself) ["me", other_user]\n'
+                                       'account_type=None [steam, battlenet, origin, epic, activision, etc]\n'
+                                       'account=None (this is where you\'d specifiy the account name\n'
                                        'guess=None')  # !hangman
     embed.add_field(name='Example Usage', value='!reddit aww new\n'
                                                 '\n'
@@ -60,18 +84,22 @@ async def help(ctx):
                                                 '!idea [Your idea here]\n'
                                                 '!owstat iDelu#1100\n'
                                                 '\n'
+                                                '!profile add me\n'
+                                                '!profile add me steam TheKDorm\n'
+                                                '!profile get all all\n'
+                                                '!profile get "Kygo Ren" all\n'
                                                 '!hangman')
     await ctx.send(embed=embed)
 
 
 @bot.command()
-async def idea(ctx):
+async def idea(ctx):  # !idea command for users to send me bot functionality ideas
     logger.critical(f'{ctx.message.author}: {ctx.message.content.lstrip("!idea ")}')
     await ctx.send(f'Thanks for the suggestion!')
 
 
 @bot.command()
-async def owstat(ctx, player, role=None):
+async def owstat(ctx, player, role=None):  # !owstat, gets Overwatch competitive stats for player
     print(f'Args were: player={player}, role={role}')  # For debug, print args to console
     logger.info(f'{ctx.message.author}, owstat: player={player}, role={role}')
 
@@ -133,7 +161,7 @@ async def owstat(ctx, player, role=None):
 
 
 @bot.command()
-async def reddit(ctx, sub, mode='top', time='day'):
+async def reddit(ctx, sub, mode='top', time='day'):  # !reddit, grabs top subreddit post and formats
     print(f'Args were: sub={sub}, mode={mode}, time={time}')  # For debug, print args to console
     logger.info(f'{ctx.message.author}, reddit: sub={sub}, mode={mode}, time={time}')
 
@@ -173,7 +201,7 @@ async def reddit(ctx, sub, mode='top', time='day'):
 
 
 @reddit.error
-async def reddit_error(ctx, error):
+async def reddit_error(ctx, error):  # !reddit error handling
     print(error)  # For debug, print exception to console
     logger.error(f'{error} was raised!')
 
@@ -182,52 +210,88 @@ async def reddit_error(ctx, error):
 
 
 @bot.command()
-async def profile(ctx, action, account_type=None, account=None, user=None):
-    columns = ['user', 'steam', 'battlenet']
-    if not user:
-        user = ctx.message.author
+async def profile(ctx, action, user=None, account_type=None, account=None):  # SQL db stuff for !profile
     Path("db").mkdir(parents=True, exist_ok=True)
     db = f'db/{ctx.guild}-{ctx.guild.id}.db'
     db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), db)
     logger.info(f'{ctx.message.author}, profile: db={db_path}, user={user}, action={action}, '
                 f'account={account}, account_type={account_type}')
 
-    print(f'action={action}, type={account_type}, account={account}, user={user}, db={ctx.guild}-{ctx.guild.id}.db')  # For debug
-    sql_external_profiles.create_db(db_path, columns=columns)
+    if not user or user.lower() == 'me':
+        user = ctx.message.author.name  # user is whoever used the command for cleanliness; 'me' easy to write
+    print(f'action={action}, user={user}, type={account_type}, account={account}')  # For debug
 
     if action.lower() == 'add':
-        sql_external_profiles.add_record(db_path, user, columns, column=account_type, value=account)
-        logger.info(f'Added {user} to {db_path}: {account_type}-{account}')
-        await ctx.send(f'Added {user} to db: {account_type}-{account}')
+        if not account_type and not account:  # just add a user to db
+            sql_external_profiles.add_user(db_path, user)
+            logger.info(f'Added {user} to {db_path}')
+            await ctx.send(f'Added {user} to db')
+
+        else:  # add specified account to user
+            result = sql_external_profiles.modify_user(db_path, user, column=account_type.lower(), value=account)
+            if result == 0:
+                logger.info(f'{user} not in database!')
+                await ctx.send(f'{user} not in database!')
+            elif result == 1:
+                logger.info(f'Modified {user}: {account_type}-{account}')
+                await ctx.send(f'Modified {user}: {account_type}-{account}')
+            else:
+                logger.info('Unknown error occurred.')
+                await ctx.send('Unknown error occurred.')
 
     elif action.lower() == 'get':
-        result = sql_external_profiles.get_record(db_path, user, column=account_type)  # Add get all functionality?
-        logger.info(f'Get result: {result[0][0]}')
-        await ctx.send({result[0][0]})
+        columns = sql_external_profiles.get_columns(db_path, 'users')  # get column names of db for embed and debug
 
-    elif action.lower() == 'delete':
+        if user is not ctx.message.author.name and user.lower() == 'all' and account_type == 'all':  # get all
+            result = sql_external_profiles.get_record(db_path)
+            embed = discord.Embed(title='All accounts for all server members')
+            for column in columns:
+                value = ''
+                for res in result:
+                    value = value + res[columns.index(column)] + '\n'
+                embed.add_field(name=column.capitalize(), value=value)
+            logger.info(f'Get result: {result}')
+
+        elif account_type and account_type == 'all':  # get all accounts for user
+            result = sql_external_profiles.get_record(db_path, user, account_type)
+            embed = discord.Embed(title=f'All accounts for user {user}')
+            for column in columns:
+                embed.add_field(name=column.capitalize(), value=result[0][columns.index(column)])
+            logger.info(f'Get result: {result}')
+
+        else:  # get specified account for user
+            if account_type is None:
+                account_type = 'all'
+            result = sql_external_profiles.get_record(db_path, user, account_type)
+            embed = discord.Embed(title=f'{account_type.capitalize()} account for user {user}')
+            embed.add_field(name=account_type.capitalize(), value=result[0][0])
+            logger.info(f'Get result: {result[0][0]}')
+
+        await ctx.send(embed=embed)
+
+    elif action.lower() == 'delete':  # reserved for bot.owner, deletes user from db
         if ctx.message.author.id == bot.owner_id:
-            sql_external_profiles.delete_record(db_path, user)
+            sql_external_profiles.delete_user(db_path, user)
             logger.info(f'Deleted entries for user {user}.')
             await ctx.send(f'Deleted entries for user {user}.')
         else:
             logger.info(f'Unauthorized user {user} for this action, aborting.')
             await ctx.send(f'Unauthorized user {user} for this action, aborting.')
 
-    elif action.lower() == 'add_column':
+    elif action.lower() == 'add_column':  # reserved for bot.owner, adds new column to db
         if ctx.message.author.id == bot.owner_id:
-            sql_external_profiles.modify_column(db_path, 'add', account_type)
-            logger.info(f'Added column {account_type}.')
-            await ctx.send(f'Added column {account_type}.')
+            sql_external_profiles.modify_column(db_path, 'add', user)
+            logger.info(f'Added column {user}.')
+            await ctx.send(f'Added column {user}.')
         else:
             logger.info(f'Unauthorized user {user} for this action, aborting.')
             await ctx.send(f'Unauthorized user {user} for this action, aborting.')
 
-    elif action.loower() == 'drop_column':
+    elif action.lower() == 'drop_column':  # reserved for bot.owner, drops column from db
         if ctx.message.author.id == bot.owner_id:
-            sql_external_profiles.modify_column(db_path, 'drop', account_type)
-            logger.info(f'Dropped column {account_type}.')
-            await ctx.send(f'Dropped column {account_type}.')
+            sql_external_profiles.modify_column(db_path, 'drop', user)
+            logger.info(f'Dropped column {user}.')  # use user here cus it's reserved and this is easiest way
+            await ctx.send(f'Dropped column {user}.')  # use user here cus it's reserved and this is easiest way
         else:
             logger.info(f'Unauthorized user {user} for this action, aborting.')
             await ctx.send(f'Unauthorized user {user} for this action, aborting.')
@@ -237,7 +301,18 @@ async def profile(ctx, action, account_type=None, account=None, user=None):
         await ctx.send(f'Action argument not recognized: {action}. Valid options are: add, get')
 
 
-class HangmanCommand(commands.Cog):
+@profile.error
+async def profile_error(ctx, error):  # !profile error handling
+    print(error)  # For debug, print exception to console
+    logger.error(f'{error} was raised!')
+
+    await ctx.send('Invalid combination of arguments. Try again or look at !help.')
+
+
+# TODO: Make DB stuff its own class???
+
+
+class HangmanCommand(commands.Cog):  # !hangman game class, class allows us to preserve word between guesses
     def __init__(self, bot):
         self.bot = bot
         self.word = None
