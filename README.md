@@ -7,12 +7,22 @@ Clone repo to wherever and create a new virtual environment if preferred. Activa
 
 ## Commands:
 
-!help                    Display help  
-!idea                    Send the bot owner a message for functionality ideas :)  
-!profile args=(action [add, get], user=None ['me', other_user], account_type=None [steam, battlenet, origin, epic, activision], account=None)  
-!reddit args=(subreddit, mode=top[new, rising, controversial, gilded], time=day[all, hour, week, month, year])  
-!owstat args=(player, role=None[tank, damage, support])  
-!hangman args=(guess)  
+- !help
+  - Display help  
+- !idea
+  - Send the bot owner a message for functionality ideas :)  
+- !profile 
+  - Functionality to manipulate the server-specific SQL database
+    - args=(action [add, get], user=None ['me', other_user], account_type=None [steam, battlenet, origin, epic, activision], account=None)  
+- !reddit
+  - Reddit API to embed Reddit posts/comments/images/GIFs
+    - args=(subreddit, mode=top[new, rising, controversial, gilded], time=day[all, hour, week, month, year])  
+- !owstat
+  - Overwatch stats API to get competitive rank stats for player
+    - args=(player, role=None[tank, damage, support])  
+- !hangman 
+  - The dankest hangman implementation you'll ever come across, for when you're feeling extra lonely
+    - args=(guess)  
 
 ## Example Usage:
 !profile add me steam TheKDorm  
